@@ -222,6 +222,8 @@ Mat rojo;
 Mat verde;
 Mat azul;
 
+MatND hist;
+
 int frontera = 127;
 
 // Here we will store points
@@ -284,6 +286,8 @@ int main(int argc, char *argv[])
     namedWindow("B");
     setMouseCallback("Image", mouseCoordinatesExampleCallback);
 
+     
+
     while (true)
     {
         /* Obtain a new frame from camera */
@@ -296,6 +300,22 @@ int main(int argc, char *argv[])
             cout<<"Imagen capturada"<<endl;
             stillImage = currentImage.clone();
             video = false;
+
+            /* Calcular Histogramas para cada canal */
+            int channels[] = {0,1,2};
+            calcHist(
+                &stillImage   //Imagen a utilizar para el histograma
+                ,1              //# de imagenes
+                ,channels       //Canales a utilizar
+                ,Mat()
+                ,hist           //Resultado
+                ,1              //Dimension del
+                ,256            //Cantidad de bins
+                ,{0, 255}       //Rango
+                ,true
+                ,false
+                ); 
+
         }
         else if(c == 'R')
         {
