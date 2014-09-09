@@ -208,9 +208,12 @@
 
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/core/core.hpp>
+#include <opencv2/opencv.hpp>
+
 #include <opencv2/highgui/highgui.hpp>
 #include <iostream>
 #include <stdio.h>
+
 
 using namespace cv;
 using namespace std;
@@ -218,13 +221,18 @@ using namespace std;
 
 bool video = true;
 Mat stillImage;
+Mat resultImage = Mat(480, 640, CV_8UC3, Scalar(0,0,0));
 Mat rojo;
 Mat verde;
 Mat azul;
 
-MatND hist;
+int histRojo[256];
+int histVerde[256];
+int histAzul[256];
 
 int frontera = 127;
+
+bool firstClick = true;
 
 // Here we will store points
 vector<Point> points;
@@ -263,13 +271,82 @@ Mat getChannel(const Mat &sourceImage, const int channel)
 
      return destinationImage;
 }
+
+void calcHistRGB(const Mat &sourceImage, int *red, int *green, int *blue)
+{
+    Mat destinationImage;
+     if (destinationImage.empty())
+         destinationImage = Mat(sourceImage.rows, sourceImage.cols, CV_8UC3);
+
+     for (int y = 0; y < sourceImage.rows; y++)
+         for (int x = 0; x < sourceImage.cols; x++)
+         {
+            int r = sourceImage.at<Vec3b>(y,x)[2];
+            int g = sourceImage.at<Vec3b>(y,x)[1];
+            int b = sourceImage.at<Vec3b>(y,x)[0];
+
+            red[r]++;
+            green[g]++;
+            blue[b]++;
+         }
+}
+void colorBand(Mat destImage)
+{
+    for(int x = 0; x< 256;x++)
+    {
+        for(int y=101;y<120;y++)
+        {
+            destImage.at<Vec3b>(y,x)[0]=x;
+            destImage.at<Vec3b>(y,x)[1]=x;
+            destImage.at<Vec3b>(y,x)[2]=x;
+        }
+    }
+}
+
+void graphHist(Mat destImage, int *datos,Scalar color)
+{
+    float total = 640*480.0;
+    int size = 480;
+    for (int i = 0; i < 255; ++i) {
+        line(destImage,Point(i,100-datos[i]/160), Point(i+1,100-datos[i+1]/160),color,2,8);
+    }
+    colorBand(destImage);
+}
+
+void fillHist(Mat destImage, int *datos,Scalar color, int *rango)
+{
+    float total = 640*480.0;
+    int size = 480;
+    for (int i = 0; i < 255; ++i) {
+        float topLeft = 100-datos[i]/160;
+        float topRight = 100- datos[i+1]/160;
+        // Point puntos[1][4];
+        // puntos[0][0] = Point(i,100);
+        // puntos[0][1] = Point(i,topLeft);
+        // puntos[0][2] = Point(i+1,topRight);
+        // puntos[0][3] = Point(i+1,100);
+        // const Point *ppt[1] = {points[0]};
+        // if(i>=rango[0] && i<=rango[1])
+        // {
+        //     fillPoly(destImage,ppt,4,1,color,8,0,Point());
+        // }
+    }
+}
+
+void clearArray(int *datos)
+{
+    for(int i = 0; i <= 255; i++)
+        datos[i] = 0;
+}
 // void flipImageBasic(const Mat &sourceImage, Mat &destinationImage)
 // {
 // }
 
 /* This is the callback that will only display mouse coordinates */
 void mouseCoordinatesExampleCallback(int event, int x, int y, int flags, void* param);
-
+    Mat histoMatRojo = Mat(120, 256, CV_8UC1);
+    Mat histoMatVerde = Mat(120, 256, CV_8UC1);
+    Mat histoMatAzul = Mat(120, 256, CV_8UC1);
 int main(int argc, char *argv[])
 {
     /* First, open camera device */
@@ -281,9 +358,16 @@ int main(int argc, char *argv[])
 
     /* Create main OpenCV window to attach callbacks */
     namedWindow("Image");
+    namedWindow("Result");
+    namedWindow("Histo Rojo");
+    namedWindow("Histo Verde");
+    namedWindow("Histo Azul");
+
+    /*
     namedWindow("R");
     namedWindow("G");
     namedWindow("B");
+    */
     setMouseCallback("Image", mouseCoordinatesExampleCallback);
 
      
@@ -292,7 +376,17 @@ int main(int argc, char *argv[])
     {
         /* Obtain a new frame from camera */
         camera >> currentImage;
-
+        clearArray(histRojo);
+        clearArray(histAzul);
+        clearArray(histVerde);
+        histoMatRojo = Mat(120, 256, CV_8UC3,Scalar(0,0,0));
+        histoMatVerde = Mat(120, 256, CV_8UC3,Scalar(0,0,0));
+        histoMatAzul = Mat(120, 256, CV_8UC3,Scalar(0,0,0));
+        calcHistRGB(stillImage,histRojo,histVerde,histAzul);
+        graphHist(histoMatRojo,histRojo, Scalar(0,0,255));
+        graphHist(histoMatVerde,histVerde, Scalar(0,255,0));
+        graphHist(histoMatAzul,histAzul, Scalar(255,0,0));
+        
         char c = cvWaitKey(33);
         //cout<<c;
         if(c == 32)
@@ -302,19 +396,22 @@ int main(int argc, char *argv[])
             video = false;
 
             /* Calcular Histogramas para cada canal */
+            int bins[] = {256};
             int channels[] = {0,1,2};
-            calcHist(
-                &stillImage   //Imagen a utilizar para el histograma
-                ,1              //# de imagenes
-                ,channels       //Canales a utilizar
-                ,Mat()
-                ,hist           //Resultado
-                ,1              //Dimension del
-                ,256            //Cantidad de bins
-                ,{0, 255}       //Rango
-                ,true
-                ,false
-                ); 
+            float rango[] = {0, 255};
+            const float *rangos[] = {rango};
+            // calcHist(
+            //     &stillImage   //Imagen a utilizar para el histograma
+            //     ,1              //# de imagenes
+            //     ,channels       //Canales a utilizar
+            //     ,Mat()
+            //     ,hist           //Resultado
+            //     ,1              //Dimension del
+            //     ,bins           //Cantidad de bins
+            //     ,rangos          //Rango
+            //     ,true
+            //     ,false
+            //     ); 
 
         }
         else if(c == 'R')
@@ -340,14 +437,20 @@ int main(int argc, char *argv[])
 
             /* Show image */
             if(video)
-                imshow("Image", getGrayScale(currentImage));
+                imshow("Image", currentImage);
             else
+            {
                 imshow("Image", stillImage);
-
+                imshow("Result", resultImage);
+            }
+            imshow("Histo Rojo", histoMatRojo);
+            imshow("Histo Verde", histoMatVerde);
+            imshow("Histo Azul", histoMatAzul);
+            /*
             imshow("R",getChannel(currentImage,2));
             imshow("G",getChannel(currentImage,1));
             imshow("B",getChannel(currentImage,0));
-
+            */
             /* If 'x' is pressed, exit program */
             if (waitKey(3) == 'x')
                 break;
@@ -357,6 +460,53 @@ int main(int argc, char *argv[])
             cout << "No image data.. " << endl;
         }
         cout.flush();
+        histoMatRojo.release();
+        histoMatVerde.release();
+        histoMatAzul.release();
+    }
+}
+
+int umbralRojo[2]={0,255};
+int umbralAzul[2]={0,255};
+int umbralVerde[2]={0,255};
+Mat filtrarImg(Mat sourceImage)
+{
+    Mat destinationImage = Mat(sourceImage.rows, sourceImage.cols, CV_8UC3);
+    for (int y = 0; y < sourceImage.rows; y++)
+        for (int x = 0; x < sourceImage.cols; x++)
+        {
+            int rojo = sourceImage.at<Vec3b>(y,x)[2];
+            int verde = sourceImage.at<Vec3b>(y,x)[1];
+            int azul = sourceImage.at<Vec3b>(y,x)[0];
+            if((rojo>=umbralRojo[0] && rojo<= umbralRojo[1])&&
+                (verde>=umbralVerde[0] && verde <= umbralVerde[1])&&
+                (azul>=umbralAzul[0]&&azul<=umbralAzul[1]))
+                    destinationImage.at<Vec3b>(y,x) = sourceImage.at<Vec3b>(y,x);
+                else
+                    destinationImage.at<Vec3b>(y,x) = {255,255,255};
+        }
+    return destinationImage;
+}
+
+void colorClick(int x, int y)
+{
+    //Sacar el valor en ese punto
+    if(firstClick)
+    {
+        umbralRojo[0] = stillImage.at<Vec3b>(y,x)[2];
+        line(histoMatRojo,Point(x,100), Point(x,100-histRojo[x]/160),Scalar(0,0,255),2,8);
+        umbralVerde[0] = stillImage.at<Vec3b>(y,x)[1];
+        umbralAzul[0] = stillImage.at<Vec3b>(y,x)[0];
+        firstClick = false;
+    }
+    else
+    {
+     umbralRojo[1] = stillImage.at<Vec3b>(y,x)[2];
+     umbralVerde[1] = stillImage.at<Vec3b>(y,x)[1];
+     umbralAzul[1] = stillImage.at<Vec3b>(y,x)[0];
+     firstClick = true;
+     resultImage = filtrarImg(stillImage);
+     fillHist(histoMatRojo,histRojo,Scalar(0,0,255),umbralRojo);
     }
 }
 
@@ -371,6 +521,7 @@ void mouseCoordinatesExampleCallback(int event, int x, int y, int flags, void* p
             cout.flush();
             /*  Draw a point */
             points.push_back(Point(x, y));
+            colorClick(x,y);
             break;
         case CV_EVENT_MOUSEMOVE:
             break;
