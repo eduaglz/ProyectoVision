@@ -226,9 +226,20 @@ Mat rojo;
 Mat verde;
 Mat azul;
 
+int mouseX = 0;
+int mouseY = 0;
+
+uchar mouseR = 0;
+uchar mouseG = 0;
+uchar mouseB = 0;
+
 int histRojo[256];
 int histVerde[256];
 int histAzul[256];
+
+int umbralRojo[2]={0,255};
+int umbralAzul[2]={0,255};
+int umbralVerde[2]={0,255};
 
 int frontera = 127;
 
@@ -308,15 +319,22 @@ void graphHist(Mat destImage, int *datos,Scalar color)
     float total = 640*480.0;
     int size = 480;
     for (int i = 0; i < 255; ++i) {
-        line(destImage,Point(i,100-datos[i]/160), Point(i+1,100-datos[i+1]/160),color,2,8);
+        Point topLeft = Point(i,100-datos[i]/160); 
+        Point topRight = Point(i+1,100-datos[i+1]/160);
+        line(destImage, topLeft, topRight,color,2,8);
     }
     colorBand(destImage);
 }
 
+void graphVerticalLine(Mat destImage, int *datos, int x)
+{
+    Point topLeft = Point(x,100-datos[x]/160); 
+    Point topRight = Point(x,100);
+    line(destImage, topLeft, topRight,Scalar(255,255,255),2,8);
+}
+
 void fillHist(Mat destImage, int *datos,Scalar color, int *rango)
 {
-    float total = 640*480.0;
-    int size = 480;
     for (int i = 0; i < 255; ++i) {
         float topLeft = 100-datos[i]/160;
         float topRight = 100- datos[i+1]/160;
@@ -386,6 +404,18 @@ int main(int argc, char *argv[])
         graphHist(histoMatRojo,histRojo, Scalar(0,0,255));
         graphHist(histoMatVerde,histVerde, Scalar(0,255,0));
         graphHist(histoMatAzul,histAzul, Scalar(255,0,0));
+
+        graphVerticalLine(histoMatRojo,histRojo,mouseR);
+        graphVerticalLine(histoMatVerde,histVerde,mouseG);
+        graphVerticalLine(histoMatAzul,histAzul,mouseB);
+
+        graphVerticalLine(histoMatRojo,histRojo,umbralRojo[0]);
+        graphVerticalLine(histoMatVerde,histVerde,umbralVerde[0]);
+        graphVerticalLine(histoMatAzul,histAzul,umbralAzul[0]);
+
+        graphVerticalLine(histoMatRojo,histRojo,umbralRojo[1]);
+        graphVerticalLine(histoMatVerde,histVerde,umbralVerde[1]);
+        graphVerticalLine(histoMatAzul,histAzul,umbralAzul[1]);
         
         char c = cvWaitKey(33);
         //cout<<c;
@@ -466,9 +496,6 @@ int main(int argc, char *argv[])
     }
 }
 
-int umbralRojo[2]={0,255};
-int umbralAzul[2]={0,255};
-int umbralVerde[2]={0,255};
 Mat filtrarImg(Mat sourceImage)
 {
     Mat destinationImage = Mat(sourceImage.rows, sourceImage.cols, CV_8UC3);
@@ -524,6 +551,14 @@ void mouseCoordinatesExampleCallback(int event, int x, int y, int flags, void* p
             colorClick(x,y);
             break;
         case CV_EVENT_MOUSEMOVE:
+            mouseX = x;
+            mouseY = y;
+            if(!video)
+            {
+                mouseR = stillImage.at<Vec3b>(y,x)[2];
+                mouseG = stillImage.at<Vec3b>(y,x)[1];
+                mouseB = stillImage.at<Vec3b>(y,x)[0];
+            }
             break;
         case CV_EVENT_LBUTTONUP:
             break;
