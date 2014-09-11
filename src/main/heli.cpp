@@ -213,6 +213,7 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <iostream>
 #include <stdio.h>
+#include <math.h>
 
 
 using namespace cv;
@@ -220,26 +221,39 @@ using namespace std;
 
 
 bool video = true;
+int width = 320;
+int height = 240;
+
+Mat bigImage;
 Mat stillImage;
-Mat resultImage = Mat(480, 640, CV_8UC3, Scalar(0,0,0));
-Mat rojo;
-Mat verde;
-Mat azul;
+Mat resultImage = Mat(height, width, CV_8UC3, Scalar(0,0,0));
+Mat imgHSV;
+Mat imgYIQ;
+
+Mat resultHSV = Mat(height, width, CV_8UC3, Scalar(0,0,0));
+Mat resultYIQ = Mat(height, width, CV_8UC3, Scalar(0,0,0));
+
+Scalar lineColors[3] = {Scalar(0,0,255),Scalar(0,255,0),Scalar(255,0,0)};
 
 int mouseX = 0;
 int mouseY = 0;
 
-uchar mouseR = 0;
-uchar mouseG = 0;
-uchar mouseB = 0;
+uchar mouseRGB[3] = {0,0,0};
+int histRGB[3][256];
+int umbralesRGB[3][2] = {{0,255},{0,255},{0,255}};
+Mat histoMatRGB[3] = { Mat(120, 256, CV_8UC1),Mat(120, 256, CV_8UC1),Mat(120, 256, CV_8UC1)};
 
-int histRojo[256];
-int histVerde[256];
-int histAzul[256];
+uchar mouseYIQ[3] = {0,0,0};
+int histYIQ[3][256];
+int umbralesYIQ[3][2] = {{0,255},{0,255},{0,255}};
+Mat histoMatYIQ[3] = { Mat(120, 256, CV_8UC1),Mat(120, 256, CV_8UC1),Mat(120, 256, CV_8UC1)};
 
-int umbralRojo[2]={0,255};
-int umbralAzul[2]={0,255};
-int umbralVerde[2]={0,255};
+uchar mouseHSV[3] = {0,0,0};
+int histHSV[3][256];
+int umbralesHSV[3][2] = {{0,255},{0,255},{0,255}};
+Mat histoMatHSV[3] = { Mat(120, 256, CV_8UC1),Mat(120, 256, CV_8UC1),Mat(120, 256, CV_8UC1)};
+
+
 
 int frontera = 127;
 
@@ -247,6 +261,238 @@ bool firstClick = true;
 
 // Here we will store points
 vector<Point> points;
+
+// Create a HSV image from the RGB image using the full 8-bits, since OpenCV only allows Hues up to 180 instead of 255.
+// ref: "http://cs.haifa.ac.il/hagit/courses/ist/Lectures/Demos/ColorApplet2/t_convert.html"
+// Remember to free the generated HSV image.
+IplImage* convertImageRGBtoHSV(const IplImage *imageRGB)
+{
+    float fR, fG, fB;
+    float fH, fS, fV;
+    const float FLOAT_TO_BYTE = 255.0f;
+    const float BYTE_TO_FLOAT = 1.0f / FLOAT_TO_BYTE;
+
+    // Create a blank HSV image
+    IplImage *imageHSV = cvCreateImage(cvGetSize(imageRGB), 8, 3);
+    if (!imageHSV || imageRGB->depth != 8 || imageRGB->nChannels != 3) {
+        printf("ERROR in convertImageRGBtoHSV()! Bad input image.\n");
+        exit(1);
+    }
+
+    int h = imageRGB->height;       // Pixel height.
+    int w = imageRGB->width;        // Pixel width.
+    int rowSizeRGB = imageRGB->widthStep;   // Size of row in bytes, including extra padding.
+    char *imRGB = imageRGB->imageData;  // Pointer to the start of the image pixels.
+    int rowSizeHSV = imageHSV->widthStep;   // Size of row in bytes, including extra padding.
+    char *imHSV = imageHSV->imageData;  // Pointer to the start of the image pixels.
+    for (int y=0; y<h; y++) {
+        for (int x=0; x<w; x++) {
+            // Get the RGB pixel components. NOTE that OpenCV stores RGB pixels in B,G,R order.
+            uchar *pRGB = (uchar*)(imRGB + y*rowSizeRGB + x*3);
+            int bB = *(uchar*)(pRGB+0); // Blue component
+            int bG = *(uchar*)(pRGB+1); // Green component
+            int bR = *(uchar*)(pRGB+2); // Red component
+
+            // Convert from 8-bit integers to floats.
+            fR = bR * BYTE_TO_FLOAT;
+            fG = bG * BYTE_TO_FLOAT;
+            fB = bB * BYTE_TO_FLOAT;
+
+            // Convert from RGB to HSV, using float ranges 0.0 to 1.0.
+            float fDelta;
+            float fMin, fMax;
+            int iMax;
+            // Get the min and max, but use integer comparisons for slight speedup.
+            if (bB < bG) {
+                if (bB < bR) {
+                    fMin = fB;
+                    if (bR > bG) {
+                        iMax = bR;
+                        fMax = fR;
+                    }
+                    else {
+                        iMax = bG;
+                        fMax = fG;
+                    }
+                }
+                else {
+                    fMin = fR;
+                    fMax = fG;
+                    iMax = bG;
+                }
+            }
+            else {
+                if (bG < bR) {
+                    fMin = fG;
+                    if (bB > bR) {
+                        fMax = fB;
+                        iMax = bB;
+                    }
+                    else {
+                        fMax = fR;
+                        iMax = bR;
+                    }
+                }
+                else {
+                    fMin = fR;
+                    fMax = fB;
+                    iMax = bB;
+                }
+            }
+            fDelta = fMax - fMin;
+            fV = fMax;              // Value (Brightness).
+            if (iMax != 0) {            // Make sure it's not pure black.
+                fS = fDelta / fMax;     // Saturation.
+                float ANGLE_TO_UNIT = 1.0f / (6.0f * fDelta);   // Make the Hues between 0.0 to 1.0 instead of 6.0
+                if (iMax == bR) {       // between yellow and magenta.
+                    fH = (fG - fB) * ANGLE_TO_UNIT;
+                }
+                else if (iMax == bG) {      // between cyan and yellow.
+                    fH = (2.0f/6.0f) + ( fB - fR ) * ANGLE_TO_UNIT;
+                }
+                else {              // between magenta and cyan.
+                    fH = (4.0f/6.0f) + ( fR - fG ) * ANGLE_TO_UNIT;
+                }
+                // Wrap outlier Hues around the circle.
+                if (fH < 0.0f)
+                    fH += 1.0f;
+                if (fH >= 1.0f)
+                    fH -= 1.0f;
+            }
+            else {
+                // color is pure Black.
+                fS = 0;
+                fH = 0; // undefined hue
+            }
+
+            // Convert from floats to 8-bit integers.
+            int bH = (int)(0.5f + fH * 255.0f);
+            int bS = (int)(0.5f + fS * 255.0f);
+            int bV = (int)(0.5f + fV * 255.0f);
+
+            // Clip the values to make sure it fits within the 8bits.
+            if (bH > 255)
+                bH = 255;
+            if (bH < 0)
+                bH = 0;
+            if (bS > 255)
+                bS = 255;
+            if (bS < 0)
+                bS = 0;
+            if (bV > 255)
+                bV = 255;
+            if (bV < 0)
+                bV = 0;
+
+            // Set the HSV pixel components.
+            uchar *pHSV = (uchar*)(imHSV + y*rowSizeHSV + x*3);
+            *(pHSV+0) = bH;     // H component
+            *(pHSV+1) = bS;     // S component
+            *(pHSV+2) = bV;     // V component
+        }
+    }
+    return imageHSV;
+}
+
+// Create a YIQ image from the RGB image using an approximation of NTSC conversion(ref: "YIQ" Wikipedia page).
+// Remember to free the generated YIQ image.
+IplImage* convertImageRGBtoYIQ(const IplImage *imageRGB)
+{
+    float fR, fG, fB;
+    float fY, fI, fQ;
+    const float FLOAT_TO_BYTE = 255.0f;
+    const float BYTE_TO_FLOAT = 1.0f / FLOAT_TO_BYTE;
+    const float MIN_I = -0.5957f;
+    const float MIN_Q = -0.5226f;
+    const float Y_TO_BYTE = 255.0f;
+    const float I_TO_BYTE = 255.0f / (MIN_I * -2.0f);
+    const float Q_TO_BYTE = 255.0f / (MIN_Q * -2.0f);
+
+    // Create a blank YIQ image
+    IplImage *imageYIQ = cvCreateImage(cvGetSize(imageRGB), 8, 3);
+    if (!imageYIQ || imageRGB->depth != 8 || imageRGB->nChannels != 3) {
+        printf("ERROR in convertImageRGBtoYIQ()! Bad input image.\n");
+        exit(1);
+    }
+
+    int h = imageRGB->height;           // Pixel height
+    int w = imageRGB->width;            // Pixel width
+    int rowSizeRGB = imageRGB->widthStep;       // Size of row in bytes, including extra padding.
+    char *imRGB = imageRGB->imageData;      // Pointer to the start of the image pixels.
+    int rowSizeYIQ = imageYIQ->widthStep;       // Size of row in bytes, including extra padding.
+    char *imYIQ = imageYIQ->imageData;      // Pointer to the start of the image pixels.
+    for (int y=0; y<h; y++) {
+        for (int x=0; x<w; x++) {
+            // Get the RGB pixel components. NOTE that OpenCV stores RGB pixels in B,G,R order.
+            uchar *pRGB = (uchar*)(imRGB + y*rowSizeRGB + x*3);
+            int bB = *(uchar*)(pRGB+0); // Blue component
+            int bG = *(uchar*)(pRGB+1); // Green component
+            int bR = *(uchar*)(pRGB+2); // Red component
+
+            // Convert from 8-bit integers to floats
+            fR = bR * BYTE_TO_FLOAT;
+            fG = bG * BYTE_TO_FLOAT;
+            fB = bB * BYTE_TO_FLOAT;
+            // Convert from RGB to YIQ,
+            // where R,G,B are 0-1, Y is 0-1, I is -0.5957 to +0.5957, Q is -0.5226 to +0.5226.
+            fY =    0.299 * fR +    0.587 * fG +    0.114 * fB;
+            fI = 0.595716 * fR - 0.274453 * fG - 0.321263 * fB;
+            fQ = 0.211456 * fR - 0.522591 * fG + 0.311135 * fB;
+            // Convert from floats to 8-bit integers
+            int bY = (int)(0.5f + fY * Y_TO_BYTE);
+            int bI = (int)(0.5f + (fI - MIN_I) * I_TO_BYTE);
+            int bQ = (int)(0.5f + (fQ - MIN_Q) * Q_TO_BYTE);
+
+            // Clip the values to make sure it fits within the 8bits.
+            if (bY > 255)
+                bY = 255;
+            if (bY < 0)
+                bY = 0;
+            if (bI > 255)
+                bI = 255;
+            if (bI < 0)
+                bI = 0;
+            if (bQ > 255)
+                bQ = 255;
+            if (bQ < 0)
+                bQ = 0;
+
+            // Set the YIQ pixel components
+            uchar *pYIQ = (uchar*)(imYIQ + y*rowSizeYIQ + x*3);
+            *(pYIQ+0) = bY;     // Y component
+            *(pYIQ+1) = bI;     // I component
+            *(pYIQ+2) = bQ;     // Q component
+        }
+    }
+    return imageYIQ;
+}
+
+
+void generateColorMat(Mat destImage, Scalar color)
+{
+    for(int x = 0; x < 320; x++)
+    {
+        for(int y = 0; y < 240; y++)
+        {
+            float col = y/240.0;
+            int sector = floor(y/60.0);
+            switch(sector)
+            {
+                case 0:
+                destImage.at<Vec3b>(y,x) = Vec3b(0,0,255*col);
+                break;
+                case 1:
+                destImage.at<Vec3b>(y,x) = Vec3b(0,255*col,0);
+                break;
+                case 2:
+                destImage.at<Vec3b>(y,x) = Vec3b(255*col,0,0);
+                break;
+            }
+            //destImage.at<Vec3b>(y,x) = Vec3b(0,255*col,255*col);
+        }
+    }
+}
+
 
 Mat getGrayScale(const Mat &sourceImage)
 {
@@ -316,11 +562,15 @@ void colorBand(Mat destImage)
 
 void graphHist(Mat destImage, int *datos,Scalar color)
 {
-    float total = 640*480.0;
-    int size = 480;
+    float max = 0.0;
+    for(int i =0; i<256; i++)
+    {
+        if(datos[i]>max)
+            max = datos[i];
+    }
     for (int i = 0; i < 255; ++i) {
-        Point topLeft = Point(i,100-datos[i]/160); 
-        Point topRight = Point(i+1,100-datos[i+1]/160);
+        Point topLeft = Point(i,100-((datos[i]/max)*100)); 
+        Point topRight = Point(i+1,100-((datos[i+1]/max)*100));
         line(destImage, topLeft, topRight,color,2,8);
     }
     colorBand(destImage);
@@ -328,37 +578,58 @@ void graphHist(Mat destImage, int *datos,Scalar color)
 
 void graphVerticalLine(Mat destImage, int *datos, int x)
 {
-    Point topLeft = Point(x,100-datos[x]/160); 
+    float max = 0.0;
+    for(int i =0; i<256; i++)
+    {
+        if(datos[i]>max)
+            max = datos[i];
+    }
+    Point topLeft = Point(x,100-((datos[x]/max)*100)); 
     Point topRight = Point(x,100);
     line(destImage, topLeft, topRight,Scalar(255,255,255),2,8);
 }
 
-void fillHist(Mat destImage, int *datos,Scalar color, int *rango)
-{
-    for (int i = 0; i < 255; ++i) {
-        float topLeft = 100-datos[i]/160;
-        float topRight = 100- datos[i+1]/160;
-        // Point puntos[1][4];
-        // puntos[0][0] = Point(i,100);
-        // puntos[0][1] = Point(i,topLeft);
-        // puntos[0][2] = Point(i+1,topRight);
-        // puntos[0][3] = Point(i+1,100);
-        // const Point *ppt[1] = {points[0]};
-        // if(i>=rango[0] && i<=rango[1])
-        // {
-        //     fillPoly(destImage,ppt,4,1,color,8,0,Point());
-        // }
-    }
-}
+// void fillHist(Mat destImage, int *datos,Scalar color, int *rango)
+// {
+//     for (int i = 0; i < 255; ++i) {
+//         float topLeft = 100-datos[i]/160;
+//         float topRight = 100- datos[i+1]/160;
+//         // Point puntos[1][4];
+//         // puntos[0][0] = Point(i,100);
+//         // puntos[0][1] = Point(i,topLeft);
+//         // puntos[0][2] = Point(i+1,topRight);
+//         // puntos[0][3] = Point(i+1,100);
+//         // const Point *ppt[1] = {points[0]};
+//         // if(i>=rango[0] && i<=rango[1])
+//         // {
+//         //     fillPoly(destImage,ppt,4,1,color,8,0,Point());
+//         // }
+//     }
+// }
 
 void clearArray(int *datos)
 {
     for(int i = 0; i <= 255; i++)
         datos[i] = 0;
 }
-// void flipImageBasic(const Mat &sourceImage, Mat &destinationImage)
-// {
-// }
+
+void graphData(Mat sourceImage, int channels, int histogramas[][256], Mat *matHistogramas, Scalar *lineColors, uchar *mouseColorValues, int umbrales[][2])
+{
+        for(int i = 0; i < channels; i++)
+        {
+            //cout<<"Borrar Arreglo"<<endl;
+            clearArray(histogramas[i]);
+            //cout<<"Crear Mat"<<endl;
+            matHistogramas[i] = Mat(120,256,CV_8UC3,Scalar(0,0,0));
+            //cout<<"calcular histogramas"<<endl;
+            calcHistRGB(sourceImage,histogramas[0],histogramas[1],histogramas[2]);
+            //cout<<"Graficar histogramas"<<endl;
+            graphHist(matHistogramas[i],histogramas[i],lineColors[i]);
+            graphVerticalLine(matHistogramas[i],histogramas[i],mouseColorValues[i]);
+            graphVerticalLine(matHistogramas[i],histogramas[i],umbrales[i][0]);
+            graphVerticalLine(matHistogramas[i],histogramas[i],umbrales[i][1]);
+        }
+}
 
 /* This is the callback that will only display mouse coordinates */
 void mouseCoordinatesExampleCallback(int event, int x, int y, int flags, void* param);
@@ -376,16 +647,54 @@ int main(int argc, char *argv[])
 
     /* Create main OpenCV window to attach callbacks */
     namedWindow("Image");
-    namedWindow("Result");
-    namedWindow("Histo Rojo");
-    namedWindow("Histo Verde");
-    namedWindow("Histo Azul");
+    moveWindow("Image",0,0);
 
-    /*
-    namedWindow("R");
-    namedWindow("G");
-    namedWindow("B");
-    */
+    namedWindow("Result");
+    moveWindow("Result",320,0);
+
+    namedWindow("Histo Rojo");
+    moveWindow("Histo Rojo",0,530);
+
+    namedWindow("Histo Verde");
+    moveWindow("Histo Verde",0,680);
+
+    namedWindow("Histo Azul");
+    moveWindow("Histo Azul",0,900);
+
+    IplImage *tmp;
+    IplImage *imageHSV;
+    IplImage *imageYIQ;
+    namedWindow("HSV");
+    moveWindow("HSV",640,0);
+
+    namedWindow("Result HSV");
+    moveWindow("Result HSV",960,0);
+
+
+    namedWindow("Histo H");
+    moveWindow("Histo H",640,530);
+
+    namedWindow("Histo S");
+    moveWindow("Histo S",640,680);
+
+    namedWindow("Histo V");
+    moveWindow("Histo V",640,900);
+
+    namedWindow("YIQ");
+    moveWindow("YIQ",1280,0);
+
+    namedWindow("Result YIQ");
+    moveWindow("Result YIQ",1600,0);
+
+    namedWindow("Histo Y");
+    moveWindow("Histo Y",1280,530);
+
+    namedWindow("Histo I");
+    moveWindow("Histo I",1280,680);
+
+    namedWindow("Histo Q");
+    moveWindow("Histo Q",1280,900);
+
     setMouseCallback("Image", mouseCoordinatesExampleCallback);
 
      
@@ -393,56 +702,30 @@ int main(int argc, char *argv[])
     while (true)
     {
         /* Obtain a new frame from camera */
-        camera >> currentImage;
-        clearArray(histRojo);
-        clearArray(histAzul);
-        clearArray(histVerde);
-        histoMatRojo = Mat(120, 256, CV_8UC3,Scalar(0,0,0));
-        histoMatVerde = Mat(120, 256, CV_8UC3,Scalar(0,0,0));
-        histoMatAzul = Mat(120, 256, CV_8UC3,Scalar(0,0,0));
-        calcHistRGB(stillImage,histRojo,histVerde,histAzul);
-        graphHist(histoMatRojo,histRojo, Scalar(0,0,255));
-        graphHist(histoMatVerde,histVerde, Scalar(0,255,0));
-        graphHist(histoMatAzul,histAzul, Scalar(255,0,0));
+         camera >> bigImage;
+         resize(bigImage,currentImage,Size(width,height));
+        //currentImage = Mat(height, width, CV_8UC3, Scalar(0,0,0));
+        //generateColorMat(currentImage,Scalar(0,0,255));
 
-        graphVerticalLine(histoMatRojo,histRojo,mouseR);
-        graphVerticalLine(histoMatVerde,histVerde,mouseG);
-        graphVerticalLine(histoMatAzul,histAzul,mouseB);
+        if(video)
+            tmp = new IplImage(currentImage);
+        else
+            tmp = new IplImage(stillImage);
+        imageHSV = convertImageRGBtoHSV(tmp);
+        imageYIQ = convertImageRGBtoYIQ(tmp);
+        imgHSV = Mat(imageHSV);
+        imgYIQ = Mat(imageYIQ);
+        graphData(stillImage, 3, histRGB, histoMatRGB, lineColors, mouseRGB, umbralesRGB);
+        graphData(imgYIQ, 3, histYIQ, histoMatYIQ, lineColors, mouseYIQ, umbralesYIQ);
+        graphData(imgHSV, 3, histHSV, histoMatHSV, lineColors, mouseHSV, umbralesHSV);
 
-        graphVerticalLine(histoMatRojo,histRojo,umbralRojo[0]);
-        graphVerticalLine(histoMatVerde,histVerde,umbralVerde[0]);
-        graphVerticalLine(histoMatAzul,histAzul,umbralAzul[0]);
 
-        graphVerticalLine(histoMatRojo,histRojo,umbralRojo[1]);
-        graphVerticalLine(histoMatVerde,histVerde,umbralVerde[1]);
-        graphVerticalLine(histoMatAzul,histAzul,umbralAzul[1]);
-        
         char c = cvWaitKey(33);
-        //cout<<c;
         if(c == 32)
         {
             cout<<"Imagen capturada"<<endl;
             stillImage = currentImage.clone();
             video = false;
-
-            /* Calcular Histogramas para cada canal */
-            int bins[] = {256};
-            int channels[] = {0,1,2};
-            float rango[] = {0, 255};
-            const float *rangos[] = {rango};
-            // calcHist(
-            //     &stillImage   //Imagen a utilizar para el histograma
-            //     ,1              //# de imagenes
-            //     ,channels       //Canales a utilizar
-            //     ,Mat()
-            //     ,hist           //Resultado
-            //     ,1              //Dimension del
-            //     ,bins           //Cantidad de bins
-            //     ,rangos          //Rango
-            //     ,true
-            //     ,false
-            //     ); 
-
         }
         else if(c == 'R')
         {
@@ -459,7 +742,7 @@ int main(int argc, char *argv[])
         {
             /* Draw all points */
             if(points.size()>0)
-                for (int i = 0; i < (points.size()-1); ++i) {
+                for (uint i = 0; i < (points.size()-1); ++i) {
                     circle(currentImage, (Point)points[i], 5, Scalar( 0, 0, 255 ), CV_FILLED);
                     if(points.size()>1)
                         line(currentImage,(Point)points[i],(Point)points[i+1],Scalar( 255, 0,  0),2,8);
@@ -467,15 +750,30 @@ int main(int argc, char *argv[])
 
             /* Show image */
             if(video)
+            {
                 imshow("Image", currentImage);
+            }
             else
             {
                 imshow("Image", stillImage);
                 imshow("Result", resultImage);
+                imshow("Result YIQ", resultYIQ);
+                imshow("Result HSV", resultHSV);
             }
-            imshow("Histo Rojo", histoMatRojo);
-            imshow("Histo Verde", histoMatVerde);
-            imshow("Histo Azul", histoMatAzul);
+            imshow("Histo Rojo", histoMatRGB[0]);
+            imshow("Histo Verde", histoMatRGB[1]);
+            imshow("Histo Azul", histoMatRGB[2]);
+
+            imshow("Histo H", histoMatHSV[0]);
+            imshow("Histo S", histoMatHSV[1]);
+            imshow("Histo V", histoMatHSV[2]);
+
+            imshow("Histo Y", histoMatYIQ[0]);
+            imshow("Histo I", histoMatYIQ[1]);
+            imshow("Histo Q", histoMatYIQ[2]);
+
+            cvShowImage("HSV", tmp);
+            cvShowImage("YIQ", tmp);
             /*
             imshow("R",getChannel(currentImage,2));
             imshow("G",getChannel(currentImage,1));
@@ -493,10 +791,13 @@ int main(int argc, char *argv[])
         histoMatRojo.release();
         histoMatVerde.release();
         histoMatAzul.release();
+        cvReleaseImage(&imageHSV);
+        cvReleaseImage(&imageYIQ);
+        delete tmp;
     }
 }
 
-Mat filtrarImg(Mat sourceImage)
+Mat filtrarImg(Mat sourceImage, int umbrales[][2])
 {
     Mat destinationImage = Mat(sourceImage.rows, sourceImage.cols, CV_8UC3);
     for (int y = 0; y < sourceImage.rows; y++)
@@ -505,12 +806,12 @@ Mat filtrarImg(Mat sourceImage)
             int rojo = sourceImage.at<Vec3b>(y,x)[2];
             int verde = sourceImage.at<Vec3b>(y,x)[1];
             int azul = sourceImage.at<Vec3b>(y,x)[0];
-            if((rojo>=umbralRojo[0] && rojo<= umbralRojo[1])&&
-                (verde>=umbralVerde[0] && verde <= umbralVerde[1])&&
-                (azul>=umbralAzul[0]&&azul<=umbralAzul[1]))
+            if((rojo>=umbrales[0][0] && rojo<= umbrales[0][1])&&
+                (verde>=umbrales[1][0] && verde <= umbrales[1][1])&&
+                (azul>=umbrales[2][0]&&azul<=umbrales[2][1]))
                     destinationImage.at<Vec3b>(y,x) = sourceImage.at<Vec3b>(y,x);
                 else
-                    destinationImage.at<Vec3b>(y,x) = {255,255,255};
+                    destinationImage.at<Vec3b>(y,x) = Vec3b(255,255,255);
         }
     return destinationImage;
 }
@@ -520,20 +821,36 @@ void colorClick(int x, int y)
     //Sacar el valor en ese punto
     if(firstClick)
     {
-        umbralRojo[0] = stillImage.at<Vec3b>(y,x)[2];
-        line(histoMatRojo,Point(x,100), Point(x,100-histRojo[x]/160),Scalar(0,0,255),2,8);
-        umbralVerde[0] = stillImage.at<Vec3b>(y,x)[1];
-        umbralAzul[0] = stillImage.at<Vec3b>(y,x)[0];
+        umbralesRGB[0][0] = stillImage.at<Vec3b>(y,x)[2];
+        umbralesRGB[1][0] = stillImage.at<Vec3b>(y,x)[1];
+        umbralesRGB[2][0] = stillImage.at<Vec3b>(y,x)[0];
+
+        umbralesHSV[0][0] = stillImage.at<Vec3b>(y,x)[2];
+        umbralesHSV[1][0] = stillImage.at<Vec3b>(y,x)[1];
+        umbralesHSV[2][0] = stillImage.at<Vec3b>(y,x)[0];
+
+        umbralesYIQ[0][0] = stillImage.at<Vec3b>(y,x)[2];
+        umbralesYIQ[1][0] = stillImage.at<Vec3b>(y,x)[1];
+        umbralesYIQ[2][0] = stillImage.at<Vec3b>(y,x)[0];
         firstClick = false;
     }
     else
     {
-     umbralRojo[1] = stillImage.at<Vec3b>(y,x)[2];
-     umbralVerde[1] = stillImage.at<Vec3b>(y,x)[1];
-     umbralAzul[1] = stillImage.at<Vec3b>(y,x)[0];
-     firstClick = true;
-     resultImage = filtrarImg(stillImage);
-     fillHist(histoMatRojo,histRojo,Scalar(0,0,255),umbralRojo);
+        umbralesRGB[0][1] = stillImage.at<Vec3b>(y,x)[2];
+        umbralesRGB[1][1] = stillImage.at<Vec3b>(y,x)[1];
+        umbralesRGB[2][1] = stillImage.at<Vec3b>(y,x)[0];
+
+        umbralesHSV[0][1] = stillImage.at<Vec3b>(y,x)[2];
+        umbralesHSV[1][1] = stillImage.at<Vec3b>(y,x)[1];
+        umbralesHSV[2][1] = stillImage.at<Vec3b>(y,x)[0];
+
+        umbralesYIQ[0][1] = stillImage.at<Vec3b>(y,x)[2];
+        umbralesYIQ[1][1] = stillImage.at<Vec3b>(y,x)[1];
+        umbralesYIQ[2][1] = stillImage.at<Vec3b>(y,x)[0];
+        firstClick = true;
+        resultImage = filtrarImg(stillImage,umbralesRGB);
+        resultYIQ = filtrarImg(imgYIQ,umbralesYIQ);
+        resultHSV = filtrarImg(imgHSV,umbralesHSV);
     }
 }
 
@@ -555,9 +872,17 @@ void mouseCoordinatesExampleCallback(int event, int x, int y, int flags, void* p
             mouseY = y;
             if(!video)
             {
-                mouseR = stillImage.at<Vec3b>(y,x)[2];
-                mouseG = stillImage.at<Vec3b>(y,x)[1];
-                mouseB = stillImage.at<Vec3b>(y,x)[0];
+                mouseRGB[0] = stillImage.at<Vec3b>(y,x)[2];
+                mouseRGB[1] = stillImage.at<Vec3b>(y,x)[1];
+                mouseRGB[2] = stillImage.at<Vec3b>(y,x)[0];
+
+                mouseHSV[0] = imgHSV.at<Vec3b>(y,x)[2];
+                mouseHSV[1] = imgHSV.at<Vec3b>(y,x)[1];
+                mouseHSV[2] = imgHSV.at<Vec3b>(y,x)[0];
+
+                mouseYIQ[0] = imgYIQ.at<Vec3b>(y,x)[2];
+                mouseYIQ[1] = imgYIQ.at<Vec3b>(y,x)[1];
+                mouseYIQ[2] = imgYIQ.at<Vec3b>(y,x)[0];
             }
             break;
         case CV_EVENT_LBUTTONUP:
