@@ -215,10 +215,14 @@
 #include <stdio.h>
 #include <math.h>
 
+#include "CHeli.h"
+
 
 using namespace cv;
 using namespace std;
 
+CRawImage *image;
+CHeli *heli;
 
 bool video = true;
 int width = 320;
@@ -229,11 +233,18 @@ Mat stillImage;
 Mat resultImage = Mat(height, width, CV_8UC3, Scalar(0,0,0));
 Mat imgHSV;
 Mat imgYIQ;
+Mat grayScale;
 
 Mat resultHSV = Mat(height, width, CV_8UC3, Scalar(0,0,0));
 Mat resultYIQ = Mat(height, width, CV_8UC3, Scalar(0,0,0));
 
 Scalar lineColors[3] = {Scalar(0,0,255),Scalar(0,255,0),Scalar(255,0,0)};
+Scalar minRGB;
+Scalar maxRGB;
+Scalar minHSV;
+Scalar maxHSV;
+Scalar minYIQ;
+Scalar maxYIQ;
 
 int mouseX = 0;
 int mouseY = 0;
@@ -261,6 +272,19 @@ bool firstClick = true;
 
 // Here we will store points
 vector<Point> points;
+
+// Convert CRawImage to Mat
+void rawToMat( Mat &destImage, CRawImage* sourceImage)
+{ 
+  uchar *pointerImage = destImage.ptr(0);
+    
+  for (int i = 0; i < 240*320; i++)
+  {
+      pointerImage[3*i] = sourceImage->data[3*i+2];
+      pointerImage[3*i+1] = sourceImage->data[3*i+1];
+      pointerImage[3*i+2] = sourceImage->data[3*i];
+  }
+}
 
 // Create a HSV image from the RGB image using the full 8-bits, since OpenCV only allows Hues up to 180 instead of 255.
 // ref: "http://cs.haifa.ac.il/hagit/courses/ist/Lectures/Demos/ColorApplet2/t_convert.html"
@@ -394,6 +418,34 @@ IplImage* convertImageRGBtoHSV(const IplImage *imageRGB)
     return imageHSV;
 }
 
+void convertPixelRGBtoYIQ(Mat &sourceImage, int x, int y, float *destArray)
+{
+    float fR, fG, fB;
+    float fY, fI, fQ;
+    const float FLOAT_TO_BYTE = 255.0f;
+    const float BYTE_TO_FLOAT = 1.0f / FLOAT_TO_BYTE;
+
+     // Get the RGB pixel components. NOTE that OpenCV stores RGB pixels in B,G,R order.
+    Vec3b RGB = sourceImage.at<Vec3b>(y,x);
+    int bB = RGB[0]; // Blue component
+    int bG = RGB[1]; // Green component
+    int bR = RGB[2]; // Red component
+
+    // Convert from 8-bit integers to floats
+    fR = bR * BYTE_TO_FLOAT;
+    fG = bG * BYTE_TO_FLOAT;
+    fB = bB * BYTE_TO_FLOAT;
+    // Convert from RGB to YIQ,
+    // where R,G,B are 0-1, Y is 0-1, I is -0.5957 to +0.5957, Q is -0.5226 to +0.5226.
+    fY =    0.299 * fR +    0.587 * fG +    0.114 * fB;
+    fI = 0.595716 * fR - 0.274453 * fG - 0.321263 * fB;
+    fQ = 0.211456 * fR - 0.522591 * fG + 0.311135 * fB;
+
+    *destArray = fY;
+    *(destArray + 1) = fI;
+    *(destArray + 2) = fQ;
+}
+
 // Create a YIQ image from the RGB image using an approximation of NTSC conversion(ref: "YIQ" Wikipedia page).
 // Remember to free the generated YIQ image.
 IplImage* convertImageRGBtoYIQ(const IplImage *imageRGB)
@@ -470,24 +522,40 @@ IplImage* convertImageRGBtoYIQ(const IplImage *imageRGB)
 
 void generateColorMat(Mat destImage, Scalar color)
 {
+    int counter = 0;
+    int col = 0;
     for(int x = 0; x < 320; x++)
     {
         for(int y = 0; y < 240; y++)
         {
-            float col = y/240.0;
-            int sector = floor(y/60.0);
-            switch(sector)
+            if(counter > col)
             {
-                case 0:
-                destImage.at<Vec3b>(y,x) = Vec3b(0,0,255*col);
-                break;
-                case 1:
-                destImage.at<Vec3b>(y,x) = Vec3b(0,255*col,0);
-                break;
-                case 2:
-                destImage.at<Vec3b>(y,x) = Vec3b(255*col,0,0);
-                break;
+                col++;
+                counter = 0;
             }
+
+
+            destImage.at<Vec3b>(y,x) = Vec3b(0,col,col);
+            counter++;
+            if(col == 255 && counter == 255)
+            {
+                col = 0;
+                counter = 0;
+            }
+            // float col = y/240.0;
+            // int sector = floor(y/60.0);
+            // switch(sector)
+            // {
+            //     case 0:
+            //     destImage.at<Vec3b>(y,x) = Vec3b(0,0,255*col);
+            //     break;
+            //     case 1:
+            //     destImage.at<Vec3b>(y,x) = Vec3b(0,255*col,0);
+            //     break;
+            //     case 2:
+            //     destImage.at<Vec3b>(y,x) = Vec3b(255*col,0,0);
+            //     break;
+            // }
             //destImage.at<Vec3b>(y,x) = Vec3b(0,255*col,255*col);
         }
     }
@@ -507,7 +575,8 @@ Mat getGrayScale(const Mat &sourceImage)
             uchar gray = sourceImage.at<Vec3b>(y,x)[0]*0.1 
                     +   sourceImage.at<Vec3b>(y,x)[1]*0.3
                     +   sourceImage.at<Vec3b>(y,x)[2]*0.6;
-            destinationImage.at<uchar>(y,x) = gray > frontera ? 0 : 255;
+            destinationImage.at<uchar>(y,x) = gray;
+            //destinationImage.at<uchar>(y,x) = gray > frontera ? 0 : 255;
          }
 
      return destinationImage;
@@ -547,8 +616,12 @@ void calcHistRGB(const Mat &sourceImage, int *red, int *green, int *blue)
             blue[b]++;
          }
 }
+
 void colorBand(Mat destImage)
 {
+    int r = 255;
+    int g = 0;
+    int b = 0;
     for(int x = 0; x< 256;x++)
     {
         for(int y=101;y<120;y++)
@@ -559,6 +632,26 @@ void colorBand(Mat destImage)
         }
     }
 }
+
+// void colorBand(Mat destImage)
+// {
+//     int h = 0;
+//     int s = 255;
+//     int v = 255;
+
+//     Mat tmp = destImage.clone();
+//     for(int x = 0; x< 256;x++)
+//     {
+//         h++;
+//         for(int y=101;y<120;y++)
+//         {
+//             tmp.at<Vec3b>(y,x)[0]=h;
+//             tmp.at<Vec3b>(y,x)[1]=s;
+//             tmp.at<Vec3b>(y,x)[2]=v;
+//         }
+//     }
+//     cvtColor(tmp,destImage, CV_HSV2RGB);
+// }
 
 void graphHist(Mat destImage, int *datos,Scalar color)
 {
@@ -576,7 +669,7 @@ void graphHist(Mat destImage, int *datos,Scalar color)
     colorBand(destImage);
 }
 
-void graphVerticalLine(Mat destImage, int *datos, int x)
+void graphVerticalLine(Mat destImage, int *datos, int x, Scalar color)
 {
     float max = 0.0;
     for(int i =0; i<256; i++)
@@ -586,26 +679,8 @@ void graphVerticalLine(Mat destImage, int *datos, int x)
     }
     Point topLeft = Point(x,100-((datos[x]/max)*100)); 
     Point topRight = Point(x,100);
-    line(destImage, topLeft, topRight,Scalar(255,255,255),2,8);
+    line(destImage, topLeft, topRight,color,2,8);
 }
-
-// void fillHist(Mat destImage, int *datos,Scalar color, int *rango)
-// {
-//     for (int i = 0; i < 255; ++i) {
-//         float topLeft = 100-datos[i]/160;
-//         float topRight = 100- datos[i+1]/160;
-//         // Point puntos[1][4];
-//         // puntos[0][0] = Point(i,100);
-//         // puntos[0][1] = Point(i,topLeft);
-//         // puntos[0][2] = Point(i+1,topRight);
-//         // puntos[0][3] = Point(i+1,100);
-//         // const Point *ppt[1] = {points[0]};
-//         // if(i>=rango[0] && i<=rango[1])
-//         // {
-//         //     fillPoly(destImage,ppt,4,1,color,8,0,Point());
-//         // }
-//     }
-// }
 
 void clearArray(int *datos)
 {
@@ -625,9 +700,9 @@ void graphData(Mat sourceImage, int channels, int histogramas[][256], Mat *matHi
             calcHistRGB(sourceImage,histogramas[0],histogramas[1],histogramas[2]);
             //cout<<"Graficar histogramas"<<endl;
             graphHist(matHistogramas[i],histogramas[i],lineColors[i]);
-            graphVerticalLine(matHistogramas[i],histogramas[i],mouseColorValues[i]);
-            graphVerticalLine(matHistogramas[i],histogramas[i],umbrales[i][0]);
-            graphVerticalLine(matHistogramas[i],histogramas[i],umbrales[i][1]);
+            graphVerticalLine(matHistogramas[i],histogramas[i],mouseColorValues[i],Scalar(0,255,255));
+            graphVerticalLine(matHistogramas[i],histogramas[i],umbrales[i][0],Scalar(255,0,255));
+            graphVerticalLine(matHistogramas[i],histogramas[i],umbrales[i][1],Scalar(255,255,0));
         }
 }
 
@@ -642,8 +717,14 @@ int main(int argc, char *argv[])
     VideoCapture camera;
     camera.open(0);
 
+     //establishing connection with the quadcopter
+     heli = new CHeli();
+        
+     //this class holds the image from the drone 
+     image = new CRawImage(320,240);
+
     /* Create images where captured and transformed frames are going to be stored */
-    Mat currentImage;
+    Mat currentImage = Mat(240,320,CV_8UC3,Scalar(0,0,0));
 
     /* Create main OpenCV window to attach callbacks */
     namedWindow("Image");
@@ -702,18 +783,31 @@ int main(int argc, char *argv[])
     while (true)
     {
         /* Obtain a new frame from camera */
-         camera >> bigImage;
-         resize(bigImage,currentImage,Size(width,height));
+        camera >> bigImage;
+        //bigImage = imRead
+        resize(bigImage,currentImage,Size(width,height));
         //currentImage = Mat(height, width, CV_8UC3, Scalar(0,0,0));
         //generateColorMat(currentImage,Scalar(0,0,255));
 
+         //image is captured
+        //heli->renewImage(image);
+        // Copy to OpenCV Mat
+        //rawToMat(currentImage, image);
+        grayScale = getGrayScale(currentImage);
         if(video)
+        {
+
             tmp = new IplImage(currentImage);
+            cvtColor(currentImage,imgHSV, CV_BGR2HSV);
+        }
         else
+        {
             tmp = new IplImage(stillImage);
-        imageHSV = convertImageRGBtoHSV(tmp);
+            cvtColor(stillImage,imgHSV, CV_BGR2HSV);
+        }
+        //imageHSV = cvtColor(stillImage);//convertImageRGBtoHSV(tmp);
         imageYIQ = convertImageRGBtoYIQ(tmp);
-        imgHSV = Mat(imageHSV);
+        //imgHSV = Mat(imageHSV);
         imgYIQ = Mat(imageYIQ);
         graphData(stillImage, 3, histRGB, histoMatRGB, lineColors, mouseRGB, umbralesRGB);
         graphData(imgYIQ, 3, histYIQ, histoMatYIQ, lineColors, mouseYIQ, umbralesYIQ);
@@ -760,6 +854,7 @@ int main(int argc, char *argv[])
                 imshow("Result YIQ", resultYIQ);
                 imshow("Result HSV", resultHSV);
             }
+            imshow("Grises", grayScale);
             imshow("Histo Rojo", histoMatRGB[0]);
             imshow("Histo Verde", histoMatRGB[1]);
             imshow("Histo Azul", histoMatRGB[2]);
@@ -772,14 +867,9 @@ int main(int argc, char *argv[])
             imshow("Histo I", histoMatYIQ[1]);
             imshow("Histo Q", histoMatYIQ[2]);
 
-            cvShowImage("HSV", tmp);
-            cvShowImage("YIQ", tmp);
-            /*
-            imshow("R",getChannel(currentImage,2));
-            imshow("G",getChannel(currentImage,1));
-            imshow("B",getChannel(currentImage,0));
-            */
-            /* If 'x' is pressed, exit program */
+            imshow("HSV", imgHSV);
+            imshow("YIQ", imgYIQ);
+
             if (waitKey(3) == 'x')
                 break;
         }
@@ -791,8 +881,8 @@ int main(int argc, char *argv[])
         histoMatRojo.release();
         histoMatVerde.release();
         histoMatAzul.release();
-        cvReleaseImage(&imageHSV);
-        cvReleaseImage(&imageYIQ);
+        //cvReleaseImage(&imageHSV);
+        //cvReleaseImage(&imageYIQ);
         delete tmp;
     }
 }
@@ -806,14 +896,30 @@ Mat filtrarImg(Mat sourceImage, int umbrales[][2])
             int rojo = sourceImage.at<Vec3b>(y,x)[2];
             int verde = sourceImage.at<Vec3b>(y,x)[1];
             int azul = sourceImage.at<Vec3b>(y,x)[0];
-            if((rojo>=umbrales[0][0] && rojo<= umbrales[0][1])&&
-                (verde>=umbrales[1][0] && verde <= umbrales[1][1])&&
-                (azul>=umbrales[2][0]&&azul<=umbrales[2][1]))
+            if((
+                rojo>=umbrales[0][0] && 
+                rojo<= umbrales[0][1])&&
+                (verde>=umbrales[1][0] && 
+                verde <= umbrales[1][1])&&
+                (azul>=umbrales[2][0]&&
+                azul<=umbrales[2][1]))
                     destinationImage.at<Vec3b>(y,x) = sourceImage.at<Vec3b>(y,x);
                 else
                     destinationImage.at<Vec3b>(y,x) = Vec3b(255,255,255);
         }
     return destinationImage;
+}
+void setRango(int *valores, int nuevoValor)
+{
+    if(nuevoValor < valores[0])
+    {
+        valores[1] = valores[0];
+        valores[0] = nuevoValor;
+    }
+    else
+    {
+        valores[1] = nuevoValor;
+    }
 }
 
 void colorClick(int x, int y)
@@ -821,36 +927,72 @@ void colorClick(int x, int y)
     //Sacar el valor en ese punto
     if(firstClick)
     {
+        minRGB = Scalar(stillImage.at<Vec3b>(y,x)[2],stillImage.at<Vec3b>(y,x)[1],stillImage.at<Vec3b>(y,x)[0]);
+        minHSV = Scalar(imgHSV.at<Vec3b>(y,x)[0],imgHSV.at<Vec3b>(y,x)[1],imgHSV.at<Vec3b>(y,x)[2]);
+        minYIQ = Scalar(imgYIQ.at<Vec3b>(y,x)[0],imgYIQ.at<Vec3b>(y,x)[1],imgYIQ.at<Vec3b>(y,x)[2]);
         umbralesRGB[0][0] = stillImage.at<Vec3b>(y,x)[2];
         umbralesRGB[1][0] = stillImage.at<Vec3b>(y,x)[1];
         umbralesRGB[2][0] = stillImage.at<Vec3b>(y,x)[0];
 
-        umbralesHSV[0][0] = stillImage.at<Vec3b>(y,x)[2];
-        umbralesHSV[1][0] = stillImage.at<Vec3b>(y,x)[1];
-        umbralesHSV[2][0] = stillImage.at<Vec3b>(y,x)[0];
+        umbralesHSV[0][0] = imgHSV.at<Vec3b>(y,x)[0];
+        umbralesHSV[1][0] = imgHSV.at<Vec3b>(y,x)[1];
+        umbralesHSV[2][0] = imgHSV.at<Vec3b>(y,x)[2];
 
-        umbralesYIQ[0][0] = stillImage.at<Vec3b>(y,x)[2];
-        umbralesYIQ[1][0] = stillImage.at<Vec3b>(y,x)[1];
-        umbralesYIQ[2][0] = stillImage.at<Vec3b>(y,x)[0];
+        umbralesYIQ[0][0] = imgYIQ.at<Vec3b>(y,x)[0];
+        umbralesYIQ[1][0] = imgYIQ.at<Vec3b>(y,x)[1];
+        umbralesYIQ[2][0] = imgYIQ.at<Vec3b>(y,x)[2];
         firstClick = false;
     }
     else
     {
-        umbralesRGB[0][1] = stillImage.at<Vec3b>(y,x)[2];
-        umbralesRGB[1][1] = stillImage.at<Vec3b>(y,x)[1];
-        umbralesRGB[2][1] = stillImage.at<Vec3b>(y,x)[0];
+        // if(stillImage.at<Vec3b>(y,x)[2] < ubralesRGB[0][1])
+        // {
+        //     ubralesRGB[0][1] = ubralesRGB[0][0]
+        //     ubralesRGB[0][1] = stillImage.at<Vec3b>(y,x)[2];
+        // }
+        // else
+        // {
+        //     ubralesRGB[0][1] = stillImage.at<Vec3b>(y,x)[2];
+        // }
+        setRango(umbralesRGB[0],stillImage.at<Vec3b>(y,x)[2]);
+        setRango(umbralesRGB[1],stillImage.at<Vec3b>(y,x)[1]);
+        setRango(umbralesRGB[2],stillImage.at<Vec3b>(y,x)[0]);
+        // umbralesRGB[1][1] = stillImage.at<Vec3b>(y,x)[1];
+        // umbralesRGB[2][1] = stillImage.at<Vec3b>(y,x)[0];
 
-        umbralesHSV[0][1] = stillImage.at<Vec3b>(y,x)[2];
-        umbralesHSV[1][1] = stillImage.at<Vec3b>(y,x)[1];
-        umbralesHSV[2][1] = stillImage.at<Vec3b>(y,x)[0];
+        setRango(umbralesHSV[2],imgHSV.at<Vec3b>(y,x)[2]);
+        setRango(umbralesHSV[1],imgHSV.at<Vec3b>(y,x)[1]);
+        setRango(umbralesHSV[0],imgHSV.at<Vec3b>(y,x)[0]);
 
-        umbralesYIQ[0][1] = stillImage.at<Vec3b>(y,x)[2];
-        umbralesYIQ[1][1] = stillImage.at<Vec3b>(y,x)[1];
-        umbralesYIQ[2][1] = stillImage.at<Vec3b>(y,x)[0];
+        // umbralesHSV[0][1] = stillImage.at<Vec3b>(y,x)[2];
+        // umbralesHSV[1][1] = stillImage.at<Vec3b>(y,x)[1];
+        // umbralesHSV[2][1] = stillImage.at<Vec3b>(y,x)[0];
+
+        setRango(umbralesYIQ[0],imgYIQ.at<Vec3b>(y,x)[0]);
+        setRango(umbralesYIQ[1],imgYIQ.at<Vec3b>(y,x)[1]);
+        setRango(umbralesYIQ[2],imgYIQ.at<Vec3b>(y,x)[2]);
+
+        // umbralesYIQ[0][1] = stillImage.at<Vec3b>(y,x)[2];
+        // umbralesYIQ[1][1] = stillImage.at<Vec3b>(y,x)[1];
+        // umbralesYIQ[2][1] = stillImage.at<Vec3b>(y,x)[0];
         firstClick = true;
-        resultImage = filtrarImg(stillImage,umbralesRGB);
-        resultYIQ = filtrarImg(imgYIQ,umbralesYIQ);
-        resultHSV = filtrarImg(imgHSV,umbralesHSV);
+        //resultImage = filtrarImg(stillImage,umbralesRGB);
+
+        minRGB = Scalar(umbralesRGB[2][0], umbralesRGB[1][0], umbralesRGB[0][0]);
+        minHSV = Scalar(umbralesHSV[0][0], umbralesHSV[1][0], umbralesHSV[2][0]);
+        minYIQ = Scalar(umbralesYIQ[0][0], umbralesYIQ[1][0], umbralesYIQ[2][0]);
+
+        maxRGB = Scalar(umbralesRGB[2][1], umbralesRGB[1][1], umbralesRGB[0][1]);
+        maxHSV = Scalar(umbralesHSV[0][1], umbralesHSV[1][1], umbralesHSV[2][1]);
+        maxYIQ = Scalar(umbralesYIQ[0][1], umbralesYIQ[1][1], umbralesYIQ[2][1]);
+        cout << "RGB Max" << maxRGB << " Min " << minRGB << endl;
+        inRange(stillImage,minRGB,maxRGB,resultImage);
+        //resultYIQ = filtrarImg(imgYIQ,umbralesYIQ);
+
+        inRange(imgYIQ,minYIQ,maxYIQ,resultYIQ);
+        //resultHSV = filtrarImg(imgHSV,umbralesHSV);
+        cout << "HSV Max" << maxHSV << " Min " << minHSV << endl;
+        inRange(imgHSV,minHSV,maxHSV,resultHSV);
     }
 }
 
