@@ -1,0 +1,91 @@
+echo 
+
+making all in /common...
+make[1]: Entering directory `/home/eduaglz/Documents/Vision/Parrot Mirror/Parrot/src/common'
+g++  -Wall -ggdb  -c  -I./  CRawImage.cpp 
+make[1]: Leaving directory `/home/eduaglz/Documents/Vision/Parrot Mirror/Parrot/src/common'
+making all in /control...
+make[1]: Entering directory `/home/eduaglz/Documents/Vision/Parrot Mirror/Parrot/src/control'
+g++  -Wall -ggdb  -c  -I./ -I../common/  app.cpp 
+g++  -Wall -ggdb  -c  -I./ -I../common/  at_cmds.cpp 
+at_cmds.cpp: In function ‘void boot_drone(int)’:
+at_cmds.cpp:105:14: warning: format not a string literal and no format arguments [-Wformat-security]
+  printf (cmds);
+              ^
+at_cmds.cpp: In function ‘void at_write(int8_t*, int32_t)’:
+at_cmds.cpp:257:7: warning: variable ‘res’ set but not used [-Wunused-but-set-variable]
+   int res;
+       ^
+g++  -Wall -ggdb  -c  -I./ -I../common/  CHeli.cpp 
+g++  -Wall -ggdb  -c  -I./ -I../common/  default.cpp 
+g++  -Wall -ggdb  -c  -I./ -I../common/  navdata.cpp 
+navdata.cpp: In function ‘void navdata_write(int8_t*, int32_t)’:
+navdata.cpp:304:7: warning: variable ‘res’ set but not used [-Wunused-but-set-variable]
+   int res;
+       ^
+navdata.cpp: In function ‘void* navdata_loop(void*)’:
+navdata.cpp:373:7: warning: unused variable ‘sizeDummy’ [-Wunused-variable]
+   int sizeDummy = 0;
+       ^
+g++  -Wall -ggdb  -c  -I./ -I../common/  stream.cpp 
+In file included from stream.cpp:27:0:
+vlib.h:36:0: warning: "_GNU_SOURCE" redefined [enabled by default]
+ #define _GNU_SOURCE
+ ^
+<command-line>:0:0: note: this is the location of the previous definition
+stream.cpp: In function ‘void video_write(int8_t*, int32_t)’:
+stream.cpp:86:7: warning: variable ‘res’ set but not used [-Wunused-but-set-variable]
+   int res;
+       ^
+g++  -Wall -ggdb  -c  -I./ -I../common/  video.cpp 
+g++  -Wall -ggdb  -c  -I./ -I../common/  vlib.cpp 
+In file included from vlib.cpp:6:0:
+vlib.h:36:0: warning: "_GNU_SOURCE" redefined [enabled by default]
+ #define _GNU_SOURCE
+ ^
+<command-line>:0:0: note: this is the location of the previous definition
+vlib.cpp: In function ‘int video_peek_data(const video_stream_t*, uint32_t*, int32_t)’:
+vlib.cpp:411:38: warning: comparison between signed and unsigned integer expressions [-Wsign-compare]
+   while( length > (32 - stream_length) )
+                                      ^
+vlib.cpp: In function ‘int uvlc_encode_blockline(video_controller_t*, const vp_api_picture_t*, int32_t)’:
+vlib.cpp:843:18: warning: variable ‘video_codec’ set but not used [-Wunused-but-set-variable]
+   video_codec_t* video_codec;
+                  ^
+vlib.cpp: In function ‘int uvlc_decode_blockline(video_controller_t*, vp_api_picture_t*, int32_t*)’:
+vlib.cpp:1517:17: warning: variable ‘video_codec’ set but not used [-Wunused-but-set-variable]
+  video_codec_t* video_codec;
+                 ^
+vlib.cpp:1519:11: warning: variable ‘in’ set but not used [-Wunused-but-set-variable]
+  int16_t *in = NULL;
+           ^
+make[1]: Leaving directory `/home/eduaglz/Documents/Vision/Parrot Mirror/Parrot/src/control'
+making all in /imageproc...
+make[1]: Entering directory `/home/eduaglz/Documents/Vision/Parrot Mirror/Parrot/src/imageproc'
+g++  -Wall -ggdb  -c  -I./ -I../common -I../control  CRecognition.cpp 
+make[1]: Leaving directory `/home/eduaglz/Documents/Vision/Parrot Mirror/Parrot/src/imageproc'
+making all in /main...
+make[1]: Entering directory `/home/eduaglz/Documents/Vision/Parrot Mirror/Parrot/src/main'
+g++  -Wall -ggdb  -c  -I./ -I../common -I../imageproc -I../gui -I../control -I/usr/local/include heli.cpp 
+heli.cpp: In function ‘void colorBand(cv::Mat)’:
+heli.cpp:355:9: warning: unused variable ‘r’ [-Wunused-variable]
+     int r = 255;
+         ^
+heli.cpp:356:9: warning: unused variable ‘g’ [-Wunused-variable]
+     int g = 0;
+         ^
+heli.cpp:357:9: warning: unused variable ‘b’ [-Wunused-variable]
+     int b = 0;
+         ^
+heli.cpp: In function ‘int main(int, char**)’:
+heli.cpp:627:15: warning: unused variable ‘imageHSV’ [-Wunused-variable]
+     IplImage *imageHSV;
+               ^
+make[1]: Leaving directory `/home/eduaglz/Documents/Vision/Parrot Mirror/Parrot/src/main'
+echo "Copy objs"
+Copy objs
+coping all in /common...
+coping all in /control...
+coping all in /imageproc...
+coping all in /main...
+g++  -o ../bin/heli  ../obj/app.o ../obj/at_cmds.o ../obj/CHeli.o ../obj/CRawImage.o ../obj/CRecognition.o ../obj/default.o ../obj/heli.o ../obj/navdata.o ../obj/stream.o ../obj/video.o ../obj/vlib.o  -Wall -ggdb -L/usr/local/lib -lopencv_core -lopencv_highgui -lopencv_features2d -lopencv_imgproc -lSDL -lpthread 

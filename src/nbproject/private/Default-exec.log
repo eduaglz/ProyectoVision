@@ -1,0 +1,195 @@
+called: g++
+	/home/eduaglz/Documents/Vision/Parrot Mirror/Parrot/src/common
+	g++
+	-Wall
+	-ggdb
+	-c
+	-I./
+	CRawImage.cpp
+
+called: g++
+	/home/eduaglz/Documents/Vision/Parrot Mirror/Parrot/src/control
+	g++
+	-Wall
+	-ggdb
+	-c
+	-I./
+	-I../common/
+	app.cpp
+
+called: g++
+	/home/eduaglz/Documents/Vision/Parrot Mirror/Parrot/src/control
+	g++
+	-Wall
+	-ggdb
+	-c
+	-I./
+	-I../common/
+	at_cmds.cpp
+
+called: g++
+	/home/eduaglz/Documents/Vision/Parrot Mirror/Parrot/src/control
+	g++
+	-Wall
+	-ggdb
+	-c
+	-I./
+	-I../common/
+	CHeli.cpp
+
+called: g++
+	/home/eduaglz/Documents/Vision/Parrot Mirror/Parrot/src/control
+	g++
+	-Wall
+	-ggdb
+	-c
+	-I./
+	-I../common/
+	default.cpp
+
+called: g++
+	/home/eduaglz/Documents/Vision/Parrot Mirror/Parrot/src/control
+	g++
+	-Wall
+	-ggdb
+	-c
+	-I./
+	-I../common/
+	navdata.cpp
+
+called: g++
+	/home/eduaglz/Documents/Vision/Parrot Mirror/Parrot/src/control
+	g++
+	-Wall
+	-ggdb
+	-c
+	-I./
+	-I../common/
+	stream.cpp
+
+called: g++
+	/home/eduaglz/Documents/Vision/Parrot Mirror/Parrot/src/control
+	g++
+	-Wall
+	-ggdb
+	-c
+	-I./
+	-I../common/
+	video.cpp
+
+called: g++
+	/home/eduaglz/Documents/Vision/Parrot Mirror/Parrot/src/control
+	g++
+	-Wall
+	-ggdb
+	-c
+	-I./
+	-I../common/
+	vlib.cpp
+
+called: g++
+	/home/eduaglz/Documents/Vision/Parrot Mirror/Parrot/src/imageproc
+	g++
+	-Wall
+	-ggdb
+	-c
+	-I./
+	-I../common
+	-I../control
+	CRecognition.cpp
+
+called: g++
+	/home/eduaglz/Documents/Vision/Parrot Mirror/Parrot/src/main
+	g++
+	-Wall
+	-ggdb
+	-c
+	-I./
+	-I../common
+	-I../imageproc
+	-I../gui
+	-I../control
+	-I/usr/local/include
+	heli.cpp
+
+called: g++
+	/home/eduaglz/Documents/Vision/Parrot Mirror/Parrot/src
+	g++
+	-o
+	../bin/heli
+	../obj/app.o
+	../obj/at_cmds.o
+	../obj/CHeli.o
+	../obj/CRawImage.o
+	../obj/CRecognition.o
+	../obj/default.o
+	../obj/heli.o
+	../obj/navdata.o
+	../obj/stream.o
+	../obj/video.o
+	../obj/vlib.o
+	-Wall
+	-ggdb
+	-L/usr/local/lib
+	-lopencv_core
+	-lopencv_highgui
+	-lopencv_features2d
+	-lopencv_imgproc
+	-lSDL
+	-lpthread
+
+called: /usr/bin/ld
+	/home/eduaglz/Documents/Vision/Parrot Mirror/Parrot/src
+	/usr/bin/ld
+	--sysroot=/
+	--build-id
+	--eh-frame-hdr
+	-m
+	elf_x86_64
+	--hash-style=gnu
+	--as-needed
+	-dynamic-linker
+	/lib64/ld-linux-x86-64.so.2
+	-z
+	relro
+	-o
+	../bin/heli
+	/usr/lib/gcc/x86_64-linux-gnu/4.8/../../../x86_64-linux-gnu/crt1.o
+	/usr/lib/gcc/x86_64-linux-gnu/4.8/../../../x86_64-linux-gnu/crti.o
+	/usr/lib/gcc/x86_64-linux-gnu/4.8/crtbegin.o
+	-L/usr/local/lib
+	-L/usr/lib/gcc/x86_64-linux-gnu/4.8
+	-L/usr/lib/gcc/x86_64-linux-gnu/4.8/../../../x86_64-linux-gnu
+	-L/usr/lib/gcc/x86_64-linux-gnu/4.8/../../../../lib
+	-L/lib/x86_64-linux-gnu
+	-L/lib/../lib
+	-L/usr/lib/x86_64-linux-gnu
+	-L/usr/lib/../lib
+	-L/usr/lib/gcc/x86_64-linux-gnu/4.8/../../..
+	../obj/app.o
+	../obj/at_cmds.o
+	../obj/CHeli.o
+	../obj/CRawImage.o
+	../obj/CRecognition.o
+	../obj/default.o
+	../obj/heli.o
+	../obj/navdata.o
+	../obj/stream.o
+	../obj/video.o
+	../obj/vlib.o
+	-lopencv_core
+	-lopencv_highgui
+	-lopencv_features2d
+	-lopencv_imgproc
+	-lSDL
+	-lpthread
+	-lstdc++
+	-lm
+	-lgcc_s
+	-lgcc
+	-lc
+	-lgcc_s
+	-lgcc
+	/usr/lib/gcc/x86_64-linux-gnu/4.8/crtend.o
+	/usr/lib/gcc/x86_64-linux-gnu/4.8/../../../x86_64-linux-gnu/crtn.o
+
