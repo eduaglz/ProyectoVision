@@ -767,34 +767,41 @@ using namespace std;
 Mat video = Mat(240,320,CV_8UC3, Scalar(0,0,0));
 Mat savedImage = Mat(240,320,CV_8UC3, Scalar(0,0,0));
 Mat result = Mat(240,320,CV_8UC3, Scalar(0,0,0));
-float umbral = 0.2; 
+float umbralH = 0.3;
+float umbralS = 0.4;
+float umbralV = 0.4;
 
 /* HSV */
 Mat HSV;
+Mat HSVf;
 Mat HSV_hist[] = {Mat(), Mat(), Mat()};    //Los 3 canales por separado
 Mat HSV_hist_images[] = { Mat(150, 200, CV_8UC3, Scalar(0,0,0)), Mat(150, 200, CV_8UC3, Scalar(0,0,0)), Mat(150, 200, CV_8UC3, Scalar(0,0,0)) };
 int range[][2] = {{0,179},{0,255},{0,255}};
+int mouseHSV[]= {0,0,0};
 
+int gauss5[5][5] = {
+    {1,1,2,1,1},
+    {1,2,4,2,1},
+    {2,4,8,4,2},
+    {1,2,4,2,1},
+    {1,1,2,1,1}
+};
 
-void getHistograms(Mat src, Mat *histograms, Mat *histImages)
+void drawHist(Mat src, Mat *histograms, Mat *histImages)
 {
-    vector<Mat> channels;
-    split(src,channels);
     int histSize = 256;
-
-    float range[] = { 0, 256 } ;
-    const float* histRange = { range };
-
-    bool uniform = true;
-    bool accumulate = false;
-
-    calcHist(&channels[0], 1, 0, Mat(), histograms[0], 1, &histSize, &histRange, uniform, accumulate);
-    calcHist(&channels[1], 1, 0, Mat(), histograms[1], 1, &histSize, &histRange, uniform, accumulate);
-    calcHist(&channels[2], 1, 0, Mat(), histograms[2], 1, &histSize, &histRange, uniform, accumulate);
-
-    int hist_w = 200;
+    int hist_w = 256;
     int hist_h = 150;
     int bin_w = cvRound( (double) hist_w/histSize );
+
+    for(int i = 0; i < 3; i++)
+    {
+        if(histImages[i].data)
+        {
+            histImages[i].release();
+            histImages[i] = Mat(hist_h, hist_w, CV_8UC3, Scalar(0,0,0));
+        }
+    }
 
     Mat histImage(hist_h, hist_w, CV_8UC3, Scalar(0,0,0));
 
@@ -816,7 +823,155 @@ void getHistograms(Mat src, Mat *histograms, Mat *histImages)
                          Point( bin_w*(i), hist_h - cvRound(histograms[2].at<float>(i)) ),
                          Scalar( 0, 0, 255), 2, 8, 0  );
     }
-    
+
+    for( int i= range[0][0]; i < range[0][1]; i++)
+    {
+         rectangle(histImages[0], Point( bin_w*(i-1), hist_h - cvRound(histograms[0].at<float>(i-1)) ), 
+                Point( bin_w*(i), hist_h ), 
+                Scalar(255,0,0));       
+    }
+
+    for( int i= range[1][0]; i < range[1][1]; i++)
+    {
+         rectangle(histImages[1], Point( bin_w*(i-1), hist_h - cvRound(histograms[1].at<float>(i-1)) ), 
+                Point( bin_w*(i), hist_h ), 
+                Scalar(0,255,0));       
+    }
+
+    for( int i= range[2][0]; i < range[2][1]; i++)
+    {
+         rectangle(histImages[2], Point( bin_w*(i-1), hist_h - cvRound(histograms[2].at<float>(i-1)) ), 
+                Point( bin_w*(i), hist_h ), 
+                Scalar(0,0,255));       
+    }
+
+    /// Draw current mouse position
+    line( histImages[0], Point( mouseHSV[0], hist_h - cvRound(histograms[0].at<float>(mouseHSV[0])) ) ,
+                     Point( mouseHSV[0], hist_h ), 
+                     Scalar( 0, 255, 255), 2, 8, 0  );
+    line( histImages[1], Point( mouseHSV[1], hist_h - cvRound(histograms[1].at<float>(mouseHSV[1])) ) ,
+                     Point( mouseHSV[1], hist_h ), 
+                     Scalar( 0, 255, 255), 2, 8, 0  );
+    line( histImages[2], Point( mouseHSV[2], hist_h - cvRound(histograms[2].at<float>(mouseHSV[2])) ) ,
+                     Point( mouseHSV[2], hist_h ), 
+                     Scalar( 0, 255, 255), 2, 8, 0  );
+}
+
+void getHistograms(Mat src, Mat *histograms, Mat *histImages)
+{
+    vector<Mat> channels;
+    split(src,channels);
+    int histSize = 256;
+
+    float range[] = { 0, 256 } ;
+    const float* histRange = { range };
+
+    bool uniform = true;
+    bool accumulate = false;
+
+    calcHist(&channels[0], 1, 0, Mat(), histograms[0], 1, &histSize, &histRange, uniform, accumulate);
+    calcHist(&channels[1], 1, 0, Mat(), histograms[1], 1, &histSize, &histRange, uniform, accumulate);
+    calcHist(&channels[2], 1, 0, Mat(), histograms[2], 1, &histSize, &histRange, uniform, accumulate);
+    drawHist(src,histograms,histImages);
+}
+
+Mat filterHSV(Mat src, Scalar ref)
+{
+    //Resultado
+    Mat result = Mat(src.rows, src.cols, CV_8UC3);
+
+    //Constantes
+    int rangoH = 180;
+    int rangoS = 255;
+    int rangoV = 255;
+
+    //Rangos
+    Scalar min, max;
+    Scalar zero, full;
+
+    zero = Scalar(0,0,0);
+    full = Scalar(rangoH,rangoS,rangoV);
+
+    bool wrap = false;
+
+    //Deltas
+    float deltaH = rangoH*(umbralH/2);
+    float deltaS = rangoS*(umbralS/2);
+    float deltaV = rangoV*(umbralV/2);
+
+    int H = ref[0];
+    int S = ref[1];
+    int V = ref[2];
+
+    range[0][0] = H - deltaH; //H min
+    range[0][1] = H + deltaH; //H max
+    range[1][0] = S - deltaS; //S min
+    range[1][1] = S + deltaS; //S max
+    range[2][0] = V - deltaV; //V min
+    range[2][1] = V + deltaV; //V max
+
+    min = Scalar(range[0][0],range[1][0],range[2][0]);
+    max = Scalar(range[0][1],range[1][1],range[2][1]);
+
+    cout << "Min: " << min << " Max: " << max << endl;
+    printf("Deltas %f,%f,%f \n",deltaH,deltaS,deltaV);
+
+    int rangos[] = {rangoH,rangoS,rangoV};
+    if( ( min[0] < 0 ) | ( min[1] < 0 ) | ( min[2] < 0 ) | ( max[0] > rangoH ) | ( max[1] > rangoS ) | ( max[2] > rangoV) )
+        wrap = true;
+
+    for(int i = 0; i < 3; i++)
+    {
+        if( min[i] < 0 )
+        {
+            wrap = true;
+            int newMax = rangos[i] + min[i];
+            min[i] = max[i];
+            max[i] = newMax;
+        }
+        else if( max[i] > rangos[i])
+        {
+            wrap = true;
+            int newMin = max[i] - rangos[i];
+            max[i] = min[i];
+            min[i] = newMin;
+        }
+        else if( wrap )
+        {
+            zero[i] = min[i];
+            min[i] = max[i];
+            full[i] = max[i];
+            max[i] = zero[i];
+        }   
+    }
+
+    if(wrap)
+    {
+        cout << "Click on: "<< ref << endl;
+        cout << " Ranges("<<zero<<","<<min<<")" << endl << " Ranges("<<max<<","<<full<<")" <<endl;
+        Mat low = Mat(src.rows, src.cols, CV_8UC3);
+        Mat high = Mat(src.rows, src.cols, CV_8UC3);
+        inRange(src,zero,min,low);
+        inRange(src,max,full,high);
+        result = low | high;
+    }
+    else
+    {
+        cout<< "Click on: "<< ref << endl;
+        cout << " Ranges("<<min<<","<<max<<")"<<endl;
+        inRange(src,min,max,result);
+        
+    }
+    cout.flush();
+
+    //morphological opening (removes small objects from the foreground)
+    erode( result, result, getStructuringElement(MORPH_ELLIPSE, Size(2, 2)) );
+    dilate( result, result, getStructuringElement(MORPH_ELLIPSE, Size(2, 2)) ); 
+
+    //morphological closing (removes small holes from the foreground)
+    dilate( result, result, getStructuringElement(MORPH_ELLIPSE, Size(10, 10)) ); 
+    erode( result, result, getStructuringElement(MORPH_ELLIPSE, Size(10, 10)) );
+    return result;
 }
 
 void mouseCallback(int event, int x, int y, int flags, void* param)
@@ -833,56 +988,55 @@ void mouseCallback(int event, int x, int y, int flags, void* param)
                 int S = HSV.at<Vec3b>(y,x).val[1];
                 int V = HSV.at<Vec3b>(y,x).val[2];
 
-                float tMin = 1.0 - (umbral/2);
-                float tMax = 1.0 + (umbral/2);
-                range[0][0] = H * tMin;
-                range[0][1] = H * tMax;
-                range[1][0] = S * tMin;
-                range[1][1] = S * tMax;
-                range[2][0] = V * tMin;
-                range[2][1] = V * tMax;
+                result = filterHSV(HSV,Scalar(H,S,V));
 
-                Scalar min = Scalar(range[0][0],range[1][0],0);//range[2][0]);
-                Scalar max = Scalar(range[0][1],range[1][1],255);//range[2][1]);
+                // float tMinH = 1.0 - (umbralH/2);
+                // float tMaxH = 1.0 + (umbralH/2);
+                // float tMinS = 1.0 - (umbralS/2);
+                // float tMaxS = 1.0 + (umbralS/2);
+                // float tMinV = 1.0 - (umbralV/2);
+                // float tMaxV = 1.0 + (umbralV/2);
+                // range[0][0] = H * tMinH;
+                // range[0][1] = H * tMaxH;
+                // range[1][0] = S * tMinS;
+                // range[1][1] = S * tMaxS;
+                // range[2][0] = V * tMinV;
+                // range[2][1] = V * tMaxV;
 
-                cout<< "Click on: "<< HSV.at<Vec3b>(y,x) << " Ranges("<<min<<","<<max<<")"<<endl;
-                cout.flush();
+                // Scalar min = Scalar(range[0][0],range[1][0],range[2][0]);
+                // Scalar max = Scalar(range[0][1],range[1][1],range[2][1]);
+                // cout<< "Click on: "<< HSV.at<Vec3b>(y,x) << " Ranges("<<min<<","<<max<<")"<<endl;
+                // cout.flush();
 
-                inRange(HSV,min,max, result);
+                // inRange(HSV,min,max, result);
 
-                //morphological opening (removes small objects from the foreground)
-                erode( result, result, getStructuringElement(MORPH_ELLIPSE, Size(2, 2)) );
-                dilate( result, result, getStructuringElement(MORPH_ELLIPSE, Size(2, 2)) ); 
+                // //morphological opening (removes small objects from the foreground)
+                // erode( result, result, getStructuringElement(MORPH_ELLIPSE, Size(2, 2)) );
+                // dilate( result, result, getStructuringElement(MORPH_ELLIPSE, Size(2, 2)) ); 
 
-                 //morphological closing (removes small holes from the foreground)
-                dilate( result, result, getStructuringElement(MORPH_ELLIPSE, Size(2, 2)) ); 
-                erode( result, result, getStructuringElement(MORPH_ELLIPSE, Size(2, 2)) );
+                // //morphological closing (removes small holes from the foreground)
+                // dilate( result, result, getStructuringElement(MORPH_ELLIPSE, Size(5, 5)) ); 
+                // erode( result, result, getStructuringElement(MORPH_ELLIPSE, Size(5, 5)) );
 
                 imshow("Result", result);
+                drawHist(HSV,HSV_hist,HSV_hist_images);
+
 
             }
             
             break;
-        // case CV_EVENT_MOUSEMOVE:
-        //     mouseX = x;
-        //     mouseY = y;
-        //     if(!video)
-        //     {
-        //         mouseRGB[0] = stillImage.at<Vec3b>(y,x)[2];
-        //         mouseRGB[1] = stillImage.at<Vec3b>(y,x)[1];
-        //         mouseRGB[2] = stillImage.at<Vec3b>(y,x)[0];
-
-        //         mouseHSV[0] = imgHSV.at<Vec3b>(y,x)[0];
-        //         mouseHSV[1] = imgHSV.at<Vec3b>(y,x)[1];
-        //         mouseHSV[2] = imgHSV.at<Vec3b>(y,x)[2];
-
-        //         mouseYIQ[0] = imgYIQ.at<Vec3b>(y,x)[0];
-        //         mouseYIQ[1] = imgYIQ.at<Vec3b>(y,x)[1];
-        //         mouseYIQ[2] = imgYIQ.at<Vec3b>(y,x)[2];
-        //     }
-        //     break;
-        // case CV_EVENT_LBUTTONUP:
-        //     break;
+        case CV_EVENT_MOUSEMOVE:
+            if(HSV.data) 
+            {
+                int H = HSV.at<Vec3b>(y,x).val[0];
+                int S = HSV.at<Vec3b>(y,x).val[1];
+                int V = HSV.at<Vec3b>(y,x).val[2];
+                mouseHSV[0] = H;
+                mouseHSV[1] = S;
+                mouseHSV[2] = V;
+                drawHist(HSV,HSV_hist,HSV_hist_images);
+            }
+            break;
     }
 }
 
@@ -910,6 +1064,14 @@ int main(int argc, char *argv[])
             if(!HSV.data)
             {
                 cvtColor(savedImage,HSV,CV_BGR2HSV);
+                HSVf = HSV.clone();
+                Mat gauss = Mat(5,5,CV_32FC1, &gauss5);
+                filter2D( HSV, HSVf, -1, gauss, Point(-1,-1), 0, BORDER_DEFAULT );
+                for(int i = 0;i<3;i++)
+                {
+                    HSV_hist_images[i].release();
+                    HSV_hist_images[i] = Mat(150, 200, CV_8UC3, Scalar(0,0,0));
+                }
                 // HSV_hist_images[0].release();
                 // HSV_hist_images[1].release();
                 // HSV_hist_images[2].release();
